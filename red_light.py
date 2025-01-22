@@ -1,3 +1,5 @@
+import os
+os.environ["OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS"] = "0"
 import cv2
 import numpy as np
 #238, 50, 24 for ana 633 flourescent red 
@@ -12,11 +14,12 @@ upper_red2 = np.array([180, 255, 255])
 lower_green1 = np.array([40, 50, 50])
 upper_green1 = np.array([75, 255, 255])
 
+
 # Start video capture
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 
 # Set exposure settings (adjust as needed for lighting)
-cap.set(cv2.CAP_PROP_EXPOSURE, -2)
+cap.set(cv2.CAP_PROP_EXPOSURE, -5)
 
 MAX_BRIGHTNESS_RADIUS = 50
 
@@ -66,6 +69,9 @@ while True:
     # Combine the red and brightness masks
     r_combined_mask = cv2.bitwise_and(red_mask, filtered_bright_mask)
     g_combined_mask = cv2.bitwise_and(green_mask, filtered_bright_mask)
+
+    red_coords = None
+    green_coords = None
     # Find contours in the combined mask
     r_contours, _ = cv2.findContours(
         r_combined_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -81,6 +87,8 @@ while True:
         ((xr, yr), red_radius) = cv2.minEnclosingCircle(cr)
         ((xg, yg), green_radius) = cv2.minEnclosingCircle(cg)
 
+        red_coords = (xr, yr)
+        green_coords = (xg, yg)
         # Draw a moving point for the red light
         cv2.circle(frame, (int(xr), int(yr)), int(red_radius), (0, 255, 255), 2)
         cv2.circle(frame, (int(xr), int(yr)), 5, (0, 255, 0), -1)
@@ -123,6 +131,7 @@ while True:
         # Draw a line between the stationary and moving points
         cv2.line(frame, (int(xg), int(yg)), (int(xr), int(yr)), (0, 255, 0), 2)
 
+    #output_queue.put((red_coords, green_coords))
     # Display the different masks and the result
     cv2.imshow("Red Light Tracking", frame)
     cv2.imshow("Brightness Mask Filtered", filtered_bright_mask)
@@ -140,3 +149,4 @@ while True:
 # Release the capture and close windows
 cap.release()
 cv2.destroyAllWindows()
+##Plot it on a graph to follow visual path 
