@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import deque
+from utils import KalmanFilter
 #238, 50, 24 for ana 633 flourescent red 
 #ff0000 in rgb
 #Filter shade primary red
@@ -26,8 +27,12 @@ cap.set(cv2.CAP_PROP_EXPOSURE, -5)
 
 MAX_BRIGHTNESS_RADIUS = 50
 
-#Queue for graphing positions
-red_positions = deque(maxlen=100)  # Store the last 100 positions
+# Kalman filters for red and green LEDs
+kf_red = KalmanFilter()
+kf_green = KalmanFilter()
+
+# Queue for graphing positions
+red_positions = deque(maxlen=100)
 green_positions = deque(maxlen=100)
 
 plt.ion()
@@ -102,6 +107,7 @@ while True:
     if r_contours:
         cr = max(r_contours, key=cv2.contourArea)
         ((xr, yr), red_radius) = cv2.minEnclosingCircle(cr)
+        kf_red.correct(xr, yr)
         red_coords = (xr, yr)
         red_positions.append(red_coords)
         cv2.circle(frame, (int(xr), int(yr)), int(red_radius), (0, 255, 255), 2)
@@ -115,10 +121,15 @@ while True:
             (255, 255, 255),
             2,
         )
+    else:
+        pred_red = kf_red.predict()
+        red_coords = (pred_red[0][0], pred_red[1][0])
+        red_positions.append(red_coords)
 
     if g_contours:
         cg = max(g_contours, key=cv2.contourArea)
         ((xg, yg), green_radius) = cv2.minEnclosingCircle(cg)
+        kf_green.correct(xg, yg)
         green_coords = (xg, yg)
         green_positions.append(green_coords)
         cv2.circle(frame, (int(xg), int(yg)), int(green_radius), (0, 255, 255), 2)
@@ -132,9 +143,13 @@ while True:
             (255, 255, 255),
             2,
         )
+    else:
+        pred_green = kf_green.predict()
+        green_coords = (pred_green[0][0], pred_green[1][0])
+        green_positions.append(green_coords)
 
     if red_coords and green_coords:
-        displacement = np.sqrt((xr - xg) ** 2 + (yr - yg) ** 2)
+        displacement = np.sqrt((red_coords[0] - green_coords[0]) ** 2 + (red_coords[1] - green_coords[1]) ** 2)
         cv2.putText(
             frame,
             f"Displacement between red and green LED: {displacement:.2f}",
@@ -144,7 +159,7 @@ while True:
             (255, 255, 255),
             2,
         )
-        cv2.line(frame, (int(xg), int(yg)), (int(xr), int(yr)), (0, 255, 0), 2)
+        cv2.line(frame, (int(green_coords[0]), int(green_coords[1])), (int(red_coords[0]), int(red_coords[1])), (0, 255, 0), 2)
     # Update the live plot
     if red_positions:
         red_x, red_y = zip(*red_positions)
