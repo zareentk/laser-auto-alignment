@@ -1,8 +1,14 @@
+import os
+os.environ["OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS"] = "0"
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
+from collections import deque
+from utils import KalmanFilter
 #238, 50, 24 for ana 633 flourescent red 
 #ff0000 in rgb
 #Filter shade primary red
+
 lower_red1 = np.array([0, 50, 50])
 upper_red1 = np.array([10, 255, 255])
 lower_red2 = np.array([160, 50, 50])
@@ -12,16 +18,36 @@ upper_red2 = np.array([180, 255, 255])
 lower_green1 = np.array([40, 50, 50])
 upper_green1 = np.array([75, 255, 255])
 
+
 # Start video capture
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 
 # Set exposure settings (adjust as needed for lighting)
-cap.set(cv2.CAP_PROP_EXPOSURE, -2)
+cap.set(cv2.CAP_PROP_EXPOSURE, -5)
 
 MAX_BRIGHTNESS_RADIUS = 50
 
-# Define the stationary LED position (adjust these coordinates as needed)
-#stationary_x, stationary_y = 240, 240  # Example coordinates (center of frame)
+# Kalman filters for red and green LEDs
+kf_red = KalmanFilter()
+kf_green = KalmanFilter()
+
+# Queue for graphing positions
+red_positions = deque(maxlen=100)
+green_positions = deque(maxlen=100)
+
+plt.ion()
+fig, ax = plt.subplots(figsize=(8, 6))
+
+# Path plotting
+red_line, = ax.plot([], [], 'r-', label='Red LED Path')
+green_line, = ax.plot([], [], 'g-', label='Green LED Path')
+ax.legend()
+ax.set_title('LED Position Tracking')
+ax.set_xlim(0, 640)  
+ax.set_ylim(0, 480) 
+ax.invert_yaxis()
+ax.set_xlabel('X Coordinate')
+ax.set_ylabel('Y Coordinate')
 
 while True:
     ret, frame = cap.read()
@@ -33,7 +59,7 @@ while True:
     # Convert to HSV color space
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    # Create masks for detecting red color
+    # Create masks for detecting red and green colors
     r_mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
     r_mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
     red_mask = cv2.bitwise_or(r_mask1, r_mask2)
@@ -44,7 +70,6 @@ while True:
     kernel = np.ones((5, 5), np.uint8)
     red_mask = cv2.erode(red_mask, kernel, iterations=1)
     red_mask = cv2.dilate(red_mask, kernel, iterations=3)
-    cap.set(cv2.CAP_PROP_GAIN, 5)
 
     # Create a brightness mask
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -66,6 +91,10 @@ while True:
     # Combine the red and brightness masks
     r_combined_mask = cv2.bitwise_and(red_mask, filtered_bright_mask)
     g_combined_mask = cv2.bitwise_and(green_mask, filtered_bright_mask)
+
+    red_coords = None
+    green_coords = None
+
     # Find contours in the combined mask
     r_contours, _ = cv2.findContours(
         r_combined_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -74,24 +103,15 @@ while True:
         g_combined_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
     )
 
-    # If a moving point is detected that is red, draw it and calculate displacement
-    if r_contours and g_contours:
+    # Detect and track LED positions
+    if r_contours:
         cr = max(r_contours, key=cv2.contourArea)
-        cg= max(g_contours, key=cv2.contourArea)
         ((xr, yr), red_radius) = cv2.minEnclosingCircle(cr)
-        ((xg, yg), green_radius) = cv2.minEnclosingCircle(cg)
-
-        # Draw a moving point for the red light
+        kf_red.correct(xr, yr)
+        red_coords = (xr, yr)
+        red_positions.append(red_coords)
         cv2.circle(frame, (int(xr), int(yr)), int(red_radius), (0, 255, 255), 2)
         cv2.circle(frame, (int(xr), int(yr)), 5, (0, 255, 0), -1)
-
-        # Draw a moving point for the green light
-        cv2.circle(frame, (int(xg), int(yg)), int(green_radius), (0, 255, 255), 2)
-        cv2.circle(frame, (int(xg), int(yg)), 5, (0, 0, 255), -1)
-
-        # Calculate the displacement to the stationary LED
-        displacement = np.sqrt((xr - xg) ** 2 + (yr - yg) ** 2)
-
         cv2.putText(
             frame,
             f"Red Light Position: ({int(xr)}, {int(yr)})",
@@ -101,6 +121,19 @@ while True:
             (255, 255, 255),
             2,
         )
+    else:
+        pred_red = kf_red.predict()
+        red_coords = (pred_red[0][0], pred_red[1][0])
+        red_positions.append(red_coords)
+
+    if g_contours:
+        cg = max(g_contours, key=cv2.contourArea)
+        ((xg, yg), green_radius) = cv2.minEnclosingCircle(cg)
+        kf_green.correct(xg, yg)
+        green_coords = (xg, yg)
+        green_positions.append(green_coords)
+        cv2.circle(frame, (int(xg), int(yg)), int(green_radius), (0, 255, 255), 2)
+        cv2.circle(frame, (int(xg), int(yg)), 5, (0, 0, 255), -1)
         cv2.putText(
             frame,
             f"Green Light Position: ({int(xg)}, {int(yg)})",
@@ -110,6 +143,13 @@ while True:
             (255, 255, 255),
             2,
         )
+    else:
+        pred_green = kf_green.predict()
+        green_coords = (pred_green[0][0], pred_green[1][0])
+        green_positions.append(green_coords)
+
+    if red_coords and green_coords:
+        displacement = np.sqrt((red_coords[0] - green_coords[0]) ** 2 + (red_coords[1] - green_coords[1]) ** 2)
         cv2.putText(
             frame,
             f"Displacement between red and green LED: {displacement:.2f}",
@@ -119,24 +159,29 @@ while True:
             (255, 255, 255),
             2,
         )
+        cv2.line(frame, (int(green_coords[0]), int(green_coords[1])), (int(red_coords[0]), int(red_coords[1])), (0, 255, 0), 2)
+    # Update the live plot
+    if red_positions:
+        red_x, red_y = zip(*red_positions)
+        red_line.set_data(red_x, red_y)
 
-        # Draw a line between the stationary and moving points
-        cv2.line(frame, (int(xg), int(yg)), (int(xr), int(yr)), (0, 255, 0), 2)
+    if green_positions:
+        green_x, green_y = zip(*green_positions)
+        green_line.set_data(green_x, green_y)
 
-    # Display the different masks and the result
-    cv2.imshow("Red Light Tracking", frame)
-    cv2.imshow("Brightness Mask Filtered", filtered_bright_mask)
-    cv2.imshow("Red Combined Mask", r_combined_mask)
-    cv2.imshow("Green Combined Mask", g_combined_mask)
-    cv2.imshow("Red Mask", red_mask)
-    cv2.imshow("Green Mask", green_mask)
-    cv2.imshow("Brightness Mask", bright_mask)
+    ax.set_xlim(0, frame.shape[1])
+    ax.set_ylim(0, frame.shape[0])
+    plt.pause(0.01)
 
+    # Display the frame
+    cv2.imshow("LED Tracking", frame)
 
     # Exit on pressing 'q'
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
-# Release the capture and close windows
+# Release resources
 cap.release()
 cv2.destroyAllWindows()
+plt.ioff()
+plt.show()
