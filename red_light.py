@@ -5,6 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import deque
 from utils import KalmanFilter
+from utils import send_value
+from utils import PIDController
 #238, 50, 24 for ana 633 flourescent red 
 #ff0000 in rgb
 #Filter shade primary red
@@ -23,7 +25,7 @@ upper_green1 = np.array([75, 255, 255])
 cap = cv2.VideoCapture(1)
 
 # Set exposure settings (adjust as needed for lighting)
-cap.set(cv2.CAP_PROP_EXPOSURE, -5)
+cap.set(cv2.CAP_PROP_EXPOSURE, -7)
 
 MAX_BRIGHTNESS_RADIUS = 50
 
@@ -160,6 +162,16 @@ while True:
             2,
         )
         cv2.line(frame, (int(green_coords[0]), int(green_coords[1])), (int(red_coords[0]), int(red_coords[1])), (0, 255, 0), 2)
+        # Initialize the PIDController with gain values of 1 for both axes
+        pid = PIDController(Kp_x=1, Ki_x=1, Kd_x=1, Kp_y=1, Ki_y=1, Kd_y=1, limit_out=100)
+
+        # Compute the PID corrections
+        output_x, output_y = pid.correct(red_coords[0], red_coords[1], green_coords[0], green_coords[1]) #output is a correction factor that needs to be transformed into a servo motor position, corresponding to a pwm
+
+        # Print the outputs
+        print(f"PID output for X-axis: {output_x}")
+        print(f"PID output for Y-axis: {output_y}")
+        send_value(output_x)
     # Update the live plot
     if red_positions:
         red_x, red_y = zip(*red_positions)
@@ -179,7 +191,6 @@ while True:
     # Exit on pressing 'q'
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
-
 # Release resources
 cap.release()
 cv2.destroyAllWindows()
