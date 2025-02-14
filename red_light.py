@@ -11,9 +11,9 @@ from utils import PIDController
 #ff0000 in rgb
 #Filter shade primary red
 
-lower_red1 = np.array([0, 50, 50])
+lower_red1 = np.array([0, 15, 50])
 upper_red1 = np.array([10, 255, 255])
-lower_red2 = np.array([160, 50, 50])
+lower_red2 = np.array([160, 15, 50])
 upper_red2 = np.array([180, 255, 255])
 
 
@@ -99,7 +99,7 @@ while True:
 
     # Find contours in the combined mask
     r_contours, _ = cv2.findContours(
-        r_combined_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        bright_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
     )
     g_contours, _ = cv2.findContours(
         g_combined_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -163,7 +163,7 @@ while True:
         )
         cv2.line(frame, (int(green_coords[0]), int(green_coords[1])), (int(red_coords[0]), int(red_coords[1])), (0, 255, 0), 2)
         # Initialize the PIDController with gain values of 1 for both axes
-        pid = PIDController(Kp_x=1, Ki_x=1, Kd_x=1, Kp_y=1, Ki_y=1, Kd_y=1, limit_out=100)
+        pid = PIDController(Kp_x=0, Ki_x=0, Kd_x=0.1, Kp_y=0.1, Ki_y=0.1, Kd_y=0.1, limit_out=100)
 
         # Compute the PID corrections
         output_x, output_y = pid.correct(red_coords[0], red_coords[1], green_coords[0], green_coords[1]) #output is a correction factor that needs to be transformed into a servo motor position, corresponding to a pwm
@@ -187,6 +187,8 @@ while True:
 
     # Display the frame
     cv2.imshow("LED Tracking", frame)
+    cv2.imshow("Red Mask", red_mask)
+    cv2.imshow("Bright Mask", bright_mask)
 
     # Exit on pressing 'q'
     if cv2.waitKey(1) & 0xFF == ord("q"):

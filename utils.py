@@ -4,7 +4,7 @@ import serial
 import time
 # Kalman filter setup
 # Set up Serial communication with Arduino
-arduino = serial.Serial(port='COM3', baudrate=9600, timeout=1)  # Replace 'COM3' with your Arduino's port
+arduino = serial.Serial(port='COM8', baudrate=115200, timeout=.1)   # Replace 'COM3' with your Arduino's port
 class KalmanFilter:
     def __init__(self):
         self.kf = cv2.KalmanFilter(4, 2)
@@ -97,6 +97,7 @@ class PIDController:
 
 # Function to send data to Arduino
 def send_value(value):
-    # Ensure the value is a string and add a newline character
-    arduino.write(f"{value}\n".encode('utf-8'))
-    print(f"Sent: {value}")
+        arduino.write(bytes(str(value), 'utf-8')) 
+        time.sleep(0.1)
+        data = arduino.readlines()
+        print(data)
