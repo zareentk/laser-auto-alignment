@@ -92,7 +92,7 @@ while True:
         
     # Combine the red and brightness masks
     r_combined_mask = cv2.bitwise_and(red_mask, filtered_bright_mask)
-    g_combined_mask = cv2.bitwise_and(green_mask, filtered_bright_mask)
+#    g_combined_mask = cv2.bitwise_and(green_mask, filtered_bright_mask)
 
     red_coords = None
     green_coords = None
@@ -101,9 +101,9 @@ while True:
     r_contours, _ = cv2.findContours(
         bright_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
     )
-    g_contours, _ = cv2.findContours(
-        g_combined_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
+    # g_contours, _ = cv2.findContours(
+    #     g_combined_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    # )
 
     # Detect and track LED positions
     if r_contours:
@@ -128,29 +128,29 @@ while True:
         red_coords = (pred_red[0][0], pred_red[1][0])
         red_positions.append(red_coords)
 
-    if g_contours:
-        cg = max(g_contours, key=cv2.contourArea)
-        ((xg, yg), green_radius) = cv2.minEnclosingCircle(cg)
-        kf_green.correct(xg, yg)
-        green_coords = (xg, yg)
-        green_positions.append(green_coords)
-        cv2.circle(frame, (int(xg), int(yg)), int(green_radius), (0, 255, 255), 2)
-        cv2.circle(frame, (int(xg), int(yg)), 5, (0, 0, 255), -1)
-        cv2.putText(
-            frame,
-            f"Green Light Position: ({int(xg)}, {int(yg)})",
-            (10, 60),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (255, 255, 255),
-            2,
-        )
-    else:
-        pred_green = kf_green.predict()
-        green_coords = (pred_green[0][0], pred_green[1][0])
-        green_positions.append(green_coords)
+    # if g_contours:
+    #     cg = max(g_contours, key=cv2.contourArea)
+    #     ((xg, yg), green_radius) = cv2.minEnclosingCircle(cg)
+    #     kf_green.correct(xg, yg)
+    #     green_coords = (xg, yg)
+    #     green_positions.append(green_coords)
+    #     cv2.circle(frame, (int(xg), int(yg)), int(green_radius), (0, 255, 255), 2)
+    #     cv2.circle(frame, (int(xg), int(yg)), 5, (0, 0, 255), -1)
+    #     cv2.putText(
+    #         frame,
+    #         f"Green Light Position: ({int(xg)}, {int(yg)})",
+    #         (10, 60),
+    #         cv2.FONT_HERSHEY_SIMPLEX,
+    #         0.6,
+    #         (255, 255, 255),
+    #         2,
+    #     )
+    # else:
+    #     pred_green = kf_green.predict()
+    #     green_coords = (pred_green[0][0], pred_green[1][0])
+    #     green_positions.append(green_coords)
 
-    if red_coords and green_coords:
+    if red_coords:
         displacement = np.sqrt((red_coords[0] - green_coords[0]) ** 2 + (red_coords[1] - green_coords[1]) ** 2)
         cv2.putText(
             frame,
