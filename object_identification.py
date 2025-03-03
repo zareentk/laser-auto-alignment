@@ -1,10 +1,12 @@
+import os
+os.environ["OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS"] = "0"
 import cv2
 from ultralytics import YOLO
 
 # Load YOLOv8 pre-trained model (recognizes real cars but may work for RC cars)
 model = YOLO("yolov8n.pt")  # Use "yolov8n.pt" (small), "yolov8m.pt" (medium), or "yolov8l.pt" (large)
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 
 while True:
     ret, frame = cap.read()

@@ -7,6 +7,7 @@ from collections import deque
 from utils import KalmanFilter
 from utils import send_value
 from utils import PIDController
+from ultralytics import YOLO
 #238, 50, 24 for ana 633 flourescent red 
 #ff0000 in rgb
 #Filter shade primary red
@@ -36,6 +37,9 @@ kf_green = KalmanFilter()
 # Queue for graphing positions
 red_positions = deque(maxlen=100)
 green_positions = deque(maxlen=100)
+model = YOLO("yolov8n.pt") 
+
+cap = cv2.VideoCapture(1)
 
 plt.ion()
 fig, ax = plt.subplots(figsize=(8, 6))
@@ -128,6 +132,35 @@ while True:
         red_coords = (pred_red[0][0], pred_red[1][0])
         red_positions.append(red_coords)
 
+    # Run YOLO detection
+    results = model(frame)
+
+    for result in results:
+        for box in result.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            conf = box.conf[0].item()
+            cls = int(box.cls[0].item())
+            class_name = model.names[cls]
+
+            # Try detecting it as a regular "car"
+            if class_name == "car" and conf > 0.3:
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, f"Car ({conf:.2f})", 
+                            (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                car_center = ((x1+x2)/2, (y1+y2)/2)
+                green_positions.append(green_coords)
+                cv2.putText(
+                frame,
+                f"Car Position: ({(car_center)})",
+                (10, 60),
+                cv2.FONT_HERSHEY_SIMPLEX, 
+                0.6,
+                (255, 255, 255),
+                2,
+                )
+            else:
+                car_center = (0,0)
+
     # if g_contours:
     #     cg = max(g_contours, key=cv2.contourArea)
     #     ((xg, yg), green_radius) = cv2.minEnclosingCircle(cg)
@@ -150,23 +183,23 @@ while True:
     #     green_coords = (pred_green[0][0], pred_green[1][0])
     #     green_positions.append(green_coords)
 
-    if red_coords:
-        displacement = np.sqrt((red_coords[0] - green_coords[0]) ** 2 + (red_coords[1] - green_coords[1]) ** 2)
+    if red_coords and (car_center != (0,0)):
+        displacement = np.sqrt((red_coords[0] - car_center[0]) ** 2 + (red_coords[1] - car_center[1]) ** 2)
         cv2.putText(
             frame,
-            f"Displacement between red and green LED: {displacement:.2f}",
+            f"Displacement between red LED and car: {displacement:.2f}",
             (10, 90),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
             (255, 255, 255),
             2,
         )
-        cv2.line(frame, (int(green_coords[0]), int(green_coords[1])), (int(red_coords[0]), int(red_coords[1])), (0, 255, 0), 2)
+        cv2.line(frame, (int(car_center[0]), int(car_center[1])), (int(red_coords[0]), int(red_coords[1])), (0, 255, 0), 2)
         # Initialize the PIDController with gain values of 1 for both axes
         pid = PIDController(Kp_x=0, Ki_x=0, Kd_x=0.1, Kp_y=0.1, Ki_y=0.1, Kd_y=0.1, limit_out=100)
 
         # Compute the PID corrections
-        output_x, output_y = pid.correct(red_coords[0], red_coords[1], green_coords[0], green_coords[1]) #output is a correction factor that needs to be transformed into a servo motor position, corresponding to a pwm
+        output_x, output_y = pid.correct(red_coords[0], red_coords[1], car_center[0], car_center[1]) #output is a correction factor that needs to be transformed into a servo motor position, corresponding to a pwm
 
         # Print the outputs
         print(f"PID output for X-axis: {output_x}")
