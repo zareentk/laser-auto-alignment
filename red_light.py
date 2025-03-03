@@ -8,19 +8,15 @@ from utils import KalmanFilter
 from utils import send_value
 from utils import PIDController
 from ultralytics import YOLO
+import time
 #238, 50, 24 for ana 633 flourescent red 
-#ff0000 in rgb
+#ff0000 in rgb  
 #Filter shade primary red
-
+##GO TO DEFAULT IMMEDIATELY IF NOTHING IS DETECTED
 lower_red1 = np.array([0, 15, 50])
 upper_red1 = np.array([10, 255, 255])
 lower_red2 = np.array([160, 15, 50])
 upper_red2 = np.array([180, 255, 255])
-
-
-lower_green1 = np.array([40, 50, 50])
-upper_green1 = np.array([75, 255, 255])
-
 
 # Start video capture
 cap = cv2.VideoCapture(1)
@@ -30,13 +26,11 @@ cap.set(cv2.CAP_PROP_EXPOSURE, -7)
 
 MAX_BRIGHTNESS_RADIUS = 50
 
-# Kalman filters for red and green LEDs
+# Kalman filters for red LEDs
 kf_red = KalmanFilter()
-kf_green = KalmanFilter()
 
 # Queue for graphing positions
 red_positions = deque(maxlen=100)
-green_positions = deque(maxlen=100)
 model = YOLO("yolov8n.pt") 
 
 cap = cv2.VideoCapture(1)
@@ -46,7 +40,6 @@ fig, ax = plt.subplots(figsize=(8, 6))
 
 # Path plotting
 red_line, = ax.plot([], [], 'r-', label='Red LED Path')
-green_line, = ax.plot([], [], 'g-', label='Green LED Path')
 ax.legend()
 ax.set_title('LED Position Tracking')
 ax.set_xlim(0, 640)  
@@ -55,7 +48,7 @@ ax.invert_yaxis()
 ax.set_xlabel('X Coordinate')
 ax.set_ylabel('Y Coordinate')
 
-while True:
+while True: 
     ret, frame = cap.read()
     if not ret:
         break
@@ -65,12 +58,10 @@ while True:
     # Convert to HSV color space
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    # Create masks for detecting red and green colors
+    # Create masks for detecting red LED
     r_mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
     r_mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
     red_mask = cv2.bitwise_or(r_mask1, r_mask2)
-
-    green_mask = cv2.inRange(hsv, lower_green1, upper_green1)
 
     # Process the red mask with erosion and dilation to reduce noise
     kernel = np.ones((5, 5), np.uint8)
@@ -96,18 +87,13 @@ while True:
         
     # Combine the red and brightness masks
     r_combined_mask = cv2.bitwise_and(red_mask, filtered_bright_mask)
-#    g_combined_mask = cv2.bitwise_and(green_mask, filtered_bright_mask)
 
     red_coords = None
-    green_coords = None
 
     # Find contours in the combined mask
     r_contours, _ = cv2.findContours(
         bright_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
     )
-    # g_contours, _ = cv2.findContours(
-    #     g_combined_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    # )
 
     # Detect and track LED positions
     if r_contours:
@@ -135,6 +121,7 @@ while True:
     # Run YOLO detection
     results = model(frame)
 
+    #For object detection of the car
     for result in results:
         for box in result.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
@@ -148,7 +135,6 @@ while True:
                 cv2.putText(frame, f"Car ({conf:.2f})", 
                             (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 car_center = ((x1+x2)/2, (y1+y2)/2)
-                green_positions.append(green_coords)
                 cv2.putText(
                 frame,
                 f"Car Position: ({(car_center)})",
@@ -161,29 +147,9 @@ while True:
             else:
                 car_center = (0,0)
 
-    # if g_contours:
-    #     cg = max(g_contours, key=cv2.contourArea)
-    #     ((xg, yg), green_radius) = cv2.minEnclosingCircle(cg)
-    #     kf_green.correct(xg, yg)
-    #     green_coords = (xg, yg)
-    #     green_positions.append(green_coords)
-    #     cv2.circle(frame, (int(xg), int(yg)), int(green_radius), (0, 255, 255), 2)
-    #     cv2.circle(frame, (int(xg), int(yg)), 5, (0, 0, 255), -1)
-    #     cv2.putText(
-    #         frame,
-    #         f"Green Light Position: ({int(xg)}, {int(yg)})",
-    #         (10, 60),
-    #         cv2.FONT_HERSHEY_SIMPLEX,
-    #         0.6,
-    #         (255, 255, 255),
-    #         2,
-    #     )
-    # else:
-    #     pred_green = kf_green.predict()
-    #     green_coords = (pred_green[0][0], pred_green[1][0])
-    #     green_positions.append(green_coords)
-
-    if red_coords and (car_center != (0,0)):
+    time.sleep(0.25)
+    #If car is detected then we find the displacement if its not detected we go to default
+    if (car_center != (0,0)):
         displacement = np.sqrt((red_coords[0] - car_center[0]) ** 2 + (red_coords[1] - car_center[1]) ** 2)
         cv2.putText(
             frame,
@@ -205,14 +171,14 @@ while True:
         print(f"PID output for X-axis: {output_x}")
         print(f"PID output for Y-axis: {output_y}")
         send_value(output_x)
+    else:
+        ##make it so it goes to center
+        send_value(0,0)
+
     # Update the live plot
     if red_positions:
         red_x, red_y = zip(*red_positions)
         red_line.set_data(red_x, red_y)
-
-    if green_positions:
-        green_x, green_y = zip(*green_positions)
-        green_line.set_data(green_x, green_y)
 
     ax.set_xlim(0, frame.shape[1])
     ax.set_ylim(0, frame.shape[0])

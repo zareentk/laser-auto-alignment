@@ -2,9 +2,11 @@ import cv2
 import numpy as np
 import serial
 import time
+import csv
+import os
 # Kalman filter setup
 # Set up Serial communication with Arduino
-arduino = serial.Serial(port='COM8', baudrate=115200, timeout=.1)   # Replace 'COM3' with your Arduino's port
+arduino =serial.Serial(port='COM8', baudrate=115200, timeout=.1)   # Replace 'COM3' with your Arduino's port
 class KalmanFilter:
     def __init__(self):
         self.kf = cv2.KalmanFilter(4, 2)
@@ -49,7 +51,7 @@ class PIDController:
         # Output limit
         self.limit_out = limit_out
 
-    def correct(self, target_x, current_x, target_y, current_y, dt=None):
+    def correct(self, current_x, current_y, target_x, target_y, dt=None):
         '''
         Compute PID corrections for both axes.
         :param target_x, target_y: Desired values (setpoints) for x and y axes
@@ -93,11 +95,55 @@ class PIDController:
         self.prev_error_y = error_y
         self.prev_time = now
 
-        return output_x, output_y
+        # Define the Excel file name
+        excel_file = "pid_log.csv"
 
-# Function to send data to Arduino
+        # Prepare the data row
+        data_row = [
+            now, target_x, current_x, error_x, self.cumulative_error_x, derivative_error_x,
+            target_y, current_y, error_y, self.cumulative_error_y, derivative_error_y, dt,
+            self.Kp_x, self.Ki_x, self.Kd_x, self.Kp_y, self.Ki_y, self.Kd_y,
+            self.Kp_x * error_x, self.Ki_x * self.cumulative_error_x, self.Kd_x * derivative_error_x,
+            self.Kp_y * error_y, self.Ki_y * self.cumulative_error_y, self.Kd_y * derivative_error_y,
+            output_x, output_y
+]
+
+        # Check if the file exists to determine if we need a header
+        file_exists = os.path.isfile(excel_file)
+
+        # Write data to CSV file
+        with open(excel_file, 'a', newline='') as file:
+            writer = csv.writer(file)
+
+            # Write header only if the file is new
+            if not file_exists:
+                writer.writerow([
+                    "Time", "Target X", "Current X", "Error X", "Integral Error X", "Derivative Error X",
+                    "Target Y", "Current Y", "Error Y", "Integral Error Y", "Derivative Error Y", "dt",
+                    "Kp_x", "Ki_x", "Kd_x", "Kp_y", "Ki_y", "Kd_y",
+                    "P_x", "I_x", "D_x", "P_y", "I_y", "D_y",
+                    "Output X", "Output Y"
+                    ])
+
+            # Write the current data row
+            writer.writerow(data_row)
+
+        return output_x, output_y
+    
+def compute_angular_error(x_laser, x_receiver, image_width=1280, fov_x=70):
+   
+    # Convert pixel positions to angular positions
+    theta_laser = ((2 * x_laser / image_width) - 1) * (fov_x / 2)
+    theta_receiver = ((2 * x_receiver / image_width) - 1) * (fov_x / 2)
+
+    # Compute angular error
+    angular_error = theta_laser - theta_receiver
+
+    return angular_error
+
+
+
 def send_value(value):
-        arduino.write(bytes(str(value), 'utf-8')) 
-        time.sleep(0.1)
-        data = arduino.readlines()
-        print(data)
+    arduino.write(bytes(str(value) + '\n', 'utf-8'))  # Append '\n' so Arduino reads properly
+    data = arduino.readline().decode().strip()  # Read response from Arduino
+    print("Received from Arduino:", data)
