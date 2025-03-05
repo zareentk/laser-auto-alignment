@@ -18,11 +18,11 @@ upper_red1 = np.array([10, 255, 255])
 lower_red2 = np.array([160, 15, 50])
 upper_red2 = np.array([180, 255, 255])
 
-# Start video capture
+# Start video capture (change to 0 or 1 depending on camera used)
 cap = cv2.VideoCapture(1)
 
 # Set exposure settings (adjust as needed for lighting)
-cap.set(cv2.CAP_PROP_EXPOSURE, -7)
+cap.set(cv2.CAP_PROP_EXPOSURE, -3)
 
 MAX_BRIGHTNESS_RADIUS = 50
 
@@ -34,6 +34,9 @@ red_positions = deque(maxlen=100)
 model = YOLO("yolov8n.pt") 
 
 cap = cv2.VideoCapture(1)
+if not cap.isOpened():
+    print("Error: Unable to access the camera")
+    exit()
 
 plt.ion()
 fig, ax = plt.subplots(figsize=(8, 6))
@@ -118,38 +121,38 @@ while True:
         red_coords = (pred_red[0][0], pred_red[1][0])
         red_positions.append(red_coords)
 
-    # Run YOLO detection
     results = model(frame)
+    car_center = None
+    car_box = None
 
-    #For object detection of the car
-    for result in results:
-        for box in result.boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            conf = box.conf[0].item()
-            cls = int(box.cls[0].item())
-            class_name = model.names[cls]
-
-            # Try detecting it as a regular "car"
-            if class_name == "car" and conf > 0.3:
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(frame, f"Car ({conf:.2f})", 
-                            (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                car_center = ((x1+x2)/2, (y1+y2)/2)
-                cv2.putText(
-                frame,
-                f"Car Position: ({(car_center)})",
-                (10, 60),
-                cv2.FONT_HERSHEY_SIMPLEX, 
-                0.6,
-                (255, 255, 255),
-                2,
-                )
-            else:
-                car_center = (0,0)
+    if results and results[0].boxes is not None:
+        # Retrieve class names mapping from the model (COCO dataset)
+        names = results[0].names
+        # Get all bounding boxes detected
+        boxes = results[0].boxes
+        car_boxes = []
+        # Filter detections for 'car'
+        for box in boxes:
+            # The class is stored as a tensor; convert it to int.
+            cls = int(box.cls[0])
+            if names.get(cls, '') == 'car':
+                # box.xyxy is a tensor of shape (1,4); get the numpy array.
+                car_boxes.append(box.xyxy[0].cpu().numpy())
+        if car_boxes:
+            # Select the car with the largest area (if multiple detections)
+            def box_area(b):
+                x1, y1, x2, y2 = b
+                return (x2 - x1) * (y2 - y1)
+            car_box = max(car_boxes, key=box_area)
+            x1, y1, x2, y2 = car_box.astype(int)
+            car_center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
+            # Draw bounding box and center for visualization
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.circle(frame, car_center, 5, (0, 0, 255), -1)
 
     time.sleep(0.25)
     #If car is detected then we find the displacement if its not detected we go to default
-    if (car_center != (0,0)):
+    if car_center is not None and red_coords is not None:
         displacement = np.sqrt((red_coords[0] - car_center[0]) ** 2 + (red_coords[1] - car_center[1]) ** 2)
         cv2.putText(
             frame,
@@ -173,7 +176,7 @@ while True:
         send_value(output_x)
     else:
         ##make it so it goes to center
-        send_value(0,0)
+        send_value(320)
 
     # Update the live plot
     if red_positions:
