@@ -19,7 +19,7 @@ lower_red2 = np.array([160, 15, 50])
 upper_red2 = np.array([180, 255, 255])
 
 # Start video capture (change to 0 or 1 depending on camera used)
-cap = cv2.VideoCapture(1)
+cap = cv2.VideoCapture(0)
 
 # Set exposure settings (adjust as needed for lighting)
 cap.set(cv2.CAP_PROP_EXPOSURE, -3)
@@ -31,9 +31,8 @@ kf_red = KalmanFilter()
 
 # Queue for graphing positions
 red_positions = deque(maxlen=100)
-model = YOLO("yolov8n.pt") 
+model = YOLO("best.pt") 
 
-cap = cv2.VideoCapture(1)
 if not cap.isOpened():
     print("Error: Unable to access the camera")
     exit()

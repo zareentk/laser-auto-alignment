@@ -6,7 +6,7 @@ import csv
 import os
 # Kalman filter setup
 # Set up Serial communication with Arduino
-arduino =serial.Serial(port='COM6', baudrate=115200, timeout=.1)   # Replace 'COM3' with your Arduino's port
+arduino =serial.Serial(port='COM8', baudrate=115200, timeout=.1)   # Replace 'COM3' with your Arduino's port
 class KalmanFilter:
     def __init__(self):
         self.kf = cv2.KalmanFilter(4, 2)
