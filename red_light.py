@@ -4,11 +4,12 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import deque
-from utils import KalmanFilter
+#from utils import KalmanFilter
 from utils import send_value
-from utils import PIDController
+#from utils import PIDController
+from utils import map_camera_to_servo
 from ultralytics import YOLO
-import time
+import torch
 #238, 50, 24 for ana 633 flourescent red 
 #ff0000 in rgb  
 #Filter shade primary red
@@ -18,20 +19,35 @@ upper_red1 = np.array([10, 255, 255])
 lower_red2 = np.array([160, 15, 50])
 upper_red2 = np.array([180, 255, 255])
 
+prev_servo_x = 120
+prev_servo_y = 30
+
 # Start video capture (change to 0 or 1 depending on camera used)
 cap = cv2.VideoCapture(0)
+# Set resolution to **1280x720** (720p)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
-# Set exposure settings (adjust as needed for lighting)
-cap.set(cv2.CAP_PROP_EXPOSURE, -3)
+# Set exposure  and focus settings (adjust s needed for lighting)
+cap.set(cv2.CAP_PROP_EXPOSURE, -6)
+#cap.set(cv2.CAP_PROP_FOCUS, 8)
 
 MAX_BRIGHTNESS_RADIUS = 50
 
 # Kalman filters for red LEDs
-kf_red = KalmanFilter()
+#kf_red = KalmanFilter()
+
+# List to store data before writing
+car_positions = []
+
+#move to GPU
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print("Running on:", device)
 
 # Queue for graphing positions
 red_positions = deque(maxlen=100)
-model = YOLO("best.pt") 
+model = YOLO("best.pt")
+model.to(device)
 
 if not cap.isOpened():
     print("Error: Unable to access the camera")
@@ -54,8 +70,6 @@ while True:
     ret, frame = cap.read()
     if not ret:
         break
-
-    frame = cv2.flip(frame, 1)
 
     # Convert to HSV color space
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -94,14 +108,14 @@ while True:
 
     # Find contours in the combined mask
     r_contours, _ = cv2.findContours(
-        bright_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        r_combined_mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
     )
 
     # Detect and track LED positions
     if r_contours:
         cr = max(r_contours, key=cv2.contourArea)
         ((xr, yr), red_radius) = cv2.minEnclosingCircle(cr)
-        kf_red.correct(xr, yr)
+        #kf_red.correct(xr, yr)
         red_coords = (xr, yr)
         red_positions.append(red_coords)
         cv2.circle(frame, (int(xr), int(yr)), int(red_radius), (0, 255, 255), 2)
@@ -116,9 +130,10 @@ while True:
             2,
         )
     else:
-        pred_red = kf_red.predict()
-        red_coords = (pred_red[0][0], pred_red[1][0])
-        red_positions.append(red_coords)
+        #pred_red = kf_red.predict()
+        #red_coords = (pred_red[0][0], pred_red[1][0])
+        #red_positions.append(red_coords)
+        pass
 
     results = model(frame)
     car_center = None
@@ -145,37 +160,41 @@ while True:
             car_box = max(car_boxes, key=box_area)
             x1, y1, x2, y2 = car_box.astype(int)
             car_center = (int((x1 + x2) / 2), int((y1 + y2) / 2))
+
             # Draw bounding box and center for visualization
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
             cv2.circle(frame, car_center, 5, (0, 0, 255), -1)
 
-    time.sleep(0.25)
-    #If car is detected then we find the displacement if its not detected we go to default
-    if car_center is not None and red_coords is not None:
-        displacement = np.sqrt((red_coords[0] - car_center[0]) ** 2 + (red_coords[1] - car_center[1]) ** 2)
-        cv2.putText(
-            frame,
-            f"Displacement between red LED and car: {displacement:.2f}",
-            (10, 90),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (255, 255, 255),
-            2,
-        )
-        cv2.line(frame, (int(car_center[0]), int(car_center[1])), (int(red_coords[0]), int(red_coords[1])), (0, 255, 0), 2)
+    #If car is detected and red dot is detected then we find the displacement
+    if car_center is not None:
+        if red_coords is not None:
+            displacement = np.sqrt((red_coords[0] - car_center[0]) ** 2 + (red_coords[1] - car_center[1]) ** 2)
+            cv2.putText(
+                frame,
+                f"Displacement between red LED and car: {displacement:.2f}",
+                (10, 90),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 255),
+                2,
+            )
+            cv2.line(frame, (int(car_center[0]), int(car_center[1])), (int(red_coords[0]), int(red_coords[1])), (0, 255, 0), 2)
         # Initialize the PIDController with gain values of 1 for both axes
-        pid = PIDController(Kp_x=0, Ki_x=0, Kd_x=0.1, Kp_y=0.1, Ki_y=0.1, Kd_y=0.1, limit_out=100)
+        #pid = PIDController(Kp_x=0, Ki_x=0, Kd_x=0.1, Kp_y=0.1, Ki_y=0.1, Kd_y=0.1, limit_out=100)
 
         # Compute the PID corrections
-        output_x, output_y = pid.correct(red_coords[0], red_coords[1], car_center[0], car_center[1]) #output is a correction factor that needs to be transformed into a servo motor position, corresponding to a pwm
+        #output_x, output_y = pid.correct(red_coords[0], red_coords[1], car_center[0], car_center[1]) #output is a correction factor that needs to be transformed into a servo motor position, corresponding to a pwm
 
         # Print the outputs
-        print(f"PID output for X-axis: {output_x}")
-        print(f"PID output for Y-axis: {output_y}")
-        send_value(output_x)
+        #print(f"PID output for X-axis: {output_x}")
+        #print(f"PID output for Y-axis: {output_y}")
+        servo_x, servo_y = map_camera_to_servo(car_center[0], car_center[1])
+        prev_servo_x = servo_x
+        prev_servo_y = servo_y
+        send_value(servo_x, servo_y)
     else:
-        ##make it so it goes to center
-        send_value(320)
+        #currently goes to previous but is meant to go to default
+        send_value(prev_servo_x,prev_servo_y)
 
     # Update the live plot
     if red_positions:
@@ -184,12 +203,9 @@ while True:
 
     ax.set_xlim(0, frame.shape[1])
     ax.set_ylim(0, frame.shape[0])
-    plt.pause(0.01)
 
     # Display the frame
     cv2.imshow("LED Tracking", frame)
-    cv2.imshow("Red Mask", red_mask)
-    cv2.imshow("Bright Mask", bright_mask)
 
     # Exit on pressing 'q'
     if cv2.waitKey(1) & 0xFF == ord("q"):

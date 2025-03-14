@@ -5,8 +5,8 @@ import time
 import csv
 import os
 # Kalman filter setup
-# Set up Serial communication with Arduino
-arduino =serial.Serial(port='COM8', baudrate=115200, timeout=.1)   # Replace 'COM3' with your Arduino's port
+# Set up Serial communication with Arduino (update with new com port)
+arduino =serial.Serial(port='COM10', baudrate=115200, timeout=.1)
 class KalmanFilter:
     def __init__(self):
         self.kf = cv2.KalmanFilter(4, 2)
@@ -130,20 +130,32 @@ class PIDController:
 
         return output_x, output_y
     
-def compute_angular_error(x_laser, x_receiver, image_width=1280, fov_x=70):
-   
-    # Convert pixel positions to angular positions
-    theta_laser = ((2 * x_laser / image_width) - 1) * (fov_x / 2)
-    theta_receiver = ((2 * x_receiver / image_width) - 1) * (fov_x / 2)
 
-    # Compute angular error
-    angular_error = theta_laser - theta_receiver
+camera_points = np.array([
+    [2, 13], [1247, 22], [1254, 712], [11, 683]], dtype=np.float32)
 
-    return angular_error
+# Define corresponding servo angle positions (Destination)
+servo_points = np.array([
+    [159, 43], [80, 43], [90, 5], [152, 3]], dtype=np.float32)
+
+# Compute the perspective transformation matrix
+M = cv2.getPerspectiveTransform(camera_points, servo_points)
+
+# Function to map a single (x, y) point
+def map_camera_to_servo(x, y):
+    transformed = cv2.perspectiveTransform(np.array([[[x, y]]], dtype=np.float32), M)
+    servo_x, servo_y = transformed[0][0]  # Extract single values
+    return int(servo_x), int(servo_y)
+
+# Example usage
+#camera_x, camera_y = 640, 360  # Center of the image
+#servo_x, servo_y = map_camera_to_servo(camera_x, camera_y)
+
+#print(f"Camera ({camera_x}, {camera_y}) → Servo ({servo_x}, {servo_y})")
 
 
-
-def send_value(value):
-    arduino.write(bytes(str(value) + '\n', 'utf-8'))  # Append '\n' so Arduino reads properly
+def send_value(value1,value2):
+    arduino.write(bytes(str(value1)+ "," + str(value2) + '\n', 'utf-8'))  # Append '\n' so Arduino reads properly
+    time.sleep(0.001)
     data = arduino.readline().decode().strip()  # Read response from Arduino
     print("Received from Arduino:", data)
