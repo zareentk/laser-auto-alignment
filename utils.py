@@ -4,31 +4,13 @@ import serial
 import time
 import csv
 import os
-# Kalman filter setup
-# Set up Serial communication with Arduino (update with new com port)
-arduino =serial.Serial(port='COM10', baudrate=115200, timeout=.1)
-class KalmanFilter:
-    def __init__(self):
-        self.kf = cv2.KalmanFilter(4, 2)
-        self.kf.measurementMatrix = np.array([[1, 0, 0, 0],
-                                              [0, 1, 0, 0]], np.float32)
-        self.kf.transitionMatrix = np.array([[1, 0, 1, 0],
-                                             [0, 1, 0, 1],
-                                             [0, 0, 1, 0],
-                                             [0, 0, 0, 1]], np.float32)
-        self.kf.processNoiseCov = np.eye(4, dtype=np.float32) * 0.03
 
-    def predict(self):
-        return self.kf.predict()
-
-    def correct(self, x, y):
-        measurement = np.array([[np.float32(x)], [np.float32(y)]])
-        return self.kf.correct(measurement)
+# Set up Serial communication with Arduino
+arduino =serial.Serial(port='COM10', baudrate=115200, timeout=.1)   # Replace 'COM10' with your Arduino's port
 class PIDController:
     '''
     2-Axis PID Controller
     '''
-
     def __init__(self, Kp_x, Ki_x, Kd_x, Kp_y, Ki_y, Kd_y, limit_out=None):
         '''
         Initialize PID parameters for both axes.
@@ -67,7 +49,6 @@ class PIDController:
         # Compute time delta
         if dt is None:
             dt = now - self.prev_time
-
         # Avoid division by zero
         if dt > 0:
             # Integration terms
@@ -106,15 +87,13 @@ class PIDController:
             self.Kp_x * error_x, self.Ki_x * self.cumulative_error_x, self.Kd_x * derivative_error_x,
             self.Kp_y * error_y, self.Ki_y * self.cumulative_error_y, self.Kd_y * derivative_error_y,
             output_x, output_y
-]
-
+            ]
         # Check if the file exists to determine if we need a header
         file_exists = os.path.isfile(excel_file)
 
         # Write data to CSV file
         with open(excel_file, 'a', newline='') as file:
             writer = csv.writer(file)
-
             # Write header only if the file is new
             if not file_exists:
                 writer.writerow([
@@ -124,19 +103,17 @@ class PIDController:
                     "P_x", "I_x", "D_x", "P_y", "I_y", "D_y",
                     "Output X", "Output Y"
                     ])
-
             # Write the current data row
             writer.writerow(data_row)
 
         return output_x, output_y
-    
 
 camera_points = np.array([
-    [2, 13], [1247, 22], [1254, 712], [11, 683]], dtype=np.float32)
+    [92,4], [1097, 17], [1099, 650], [143, 656]], dtype=np.float32)
 
 # Define corresponding servo angle positions (Destination)
 servo_points = np.array([
-    [159, 43], [80, 43], [90, 5], [152, 3]], dtype=np.float32)
+    [2000,1150], [1450, 1150], [1450, 800], [2000, 800]], dtype=np.float32)
 
 # Compute the perspective transformation matrix
 M = cv2.getPerspectiveTransform(camera_points, servo_points)
@@ -147,15 +124,53 @@ def map_camera_to_servo(x, y):
     servo_x, servo_y = transformed[0][0]  # Extract single values
     return int(servo_x), int(servo_y)
 
-# Example usage
-#camera_x, camera_y = 640, 360  # Center of the image
-#servo_x, servo_y = map_camera_to_servo(camera_x, camera_y)
+def OnetoOne(prev_car_x, prev_car_y, car_x, car_y, laser_x, laser_y):
+    # Convert all pixel positions to servo coordinates using homography
+    prev_car_servo = map_camera_to_servo(prev_car_x, prev_car_y)
+    curr_car_servo = map_camera_to_servo(car_x, car_y)
+    laser_servo = map_camera_to_servo(laser_x, laser_y)
+    
+    # Compute how much the car has moved in servo space
+    delta_servo_x = curr_car_servo[0] - prev_car_servo[0]
+    delta_servo_y = curr_car_servo[1] - prev_car_servo[1]
 
-#print(f"Camera ({camera_x}, {camera_y}) → Servo ({servo_x}, {servo_y})")
+    # Compute the new laser target position
+    target_laser_servo_x = laser_servo[0] + delta_servo_x
+    target_laser_servo_y = laser_servo[1] + delta_servo_y
+    
+    print(curr_car_servo[0])
+    print(prev_car_servo[0])
+    
+    print(curr_car_servo[1])
+    print(prev_car_servo[1])
+    print(delta_servo_x)
+    print(delta_servo_y)
+    print(target_laser_servo_x)
+    print(target_laser_servo_y)
+    return (target_laser_servo_x,target_laser_servo_y)
 
+# Initialize the PIDController with gain values of 1 for both axes
+pid = PIDController(Kp_x=0.14, Ki_x=0, Kd_x=0.016, Kp_y=0.14, Ki_y=0, Kd_y=0.016, limit_out=100)
 
-def send_value(value1,value2):
-    arduino.write(bytes(str(value1)+ "," + str(value2) + '\n', 'utf-8'))  # Append '\n' so Arduino reads properly
+def Control_Algorithm(Laser_x, Laser_y, Car_x, Car_y, prev_Car, prev_microseconds_x, prev_microseconds_y):
+    LED = 0
+    distance = ((Car_x - Laser_x)**2 + (Car_y - Laser_y)**2)**0.5
+    if distance > 200: #THRESHOLD_HOMOGRAPHY
+        servo_x, servo_y = map_camera_to_servo(Car_x, Car_y) 
+        print("homography")
+    else: # distance > 400 or (distance <= 400 and prev_Car is None) or (distance <= 400 and car_changex == 0 and car_changey == 0): #THRESHOLD_PID
+        PID_output_x, PID_output_y = pid.correct(Laser_x, Laser_y, Car_x, Car_y)
+        servo_x = int(prev_microseconds_x - PID_output_x)
+        servo_y = int(prev_microseconds_y - PID_output_y)
+        print("PID") 
+    if distance < 50:
+        LED = 1
+    servo_x = max(1445, min(servo_x, 2175))
+    servo_y = max(745, min(servo_y, 1180))
+    return servo_x,servo_y, LED, distance
+
+def send_value(value1, value2, value3):
+    arduino.write(bytes(str(value1) + "," + str(value2) + "," + str(value3) + '\n', 'utf-8'))  # Append '\n' so Arduino reads properly
     time.sleep(0.001)
     data = arduino.readline().decode().strip()  # Read response from Arduino
     print("Received from Arduino:", data)
